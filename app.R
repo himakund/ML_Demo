@@ -1,51 +1,71 @@
-#
-# This is a Shiny web application. You can run the application by clicking
-# the 'Run App' button above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
+library("shinydashboard")
+library("shinybusy")
+library("DT")
+library("shinycssloaders")
+library("plotly")
+library("dplyr")
+library("shinytoastr")
+library("shinyjs")
+library("dplyr")
+library("ggplot2")
+library("tidyr")
 
-library(shiny)
-
-# Define UI for application that draws a histogram
-ui <- fluidPage(
-
-    # Application title
-    titlePanel("Old Faithful Geyser Data"),
-
-    # Sidebar with a slider input for number of bins 
-    sidebarLayout(
-        sidebarPanel(
-            sliderInput("bins",
-                        "Number of bins:",
-                        min = 1,
-                        max = 50,
-                        value = 30)
-        ),
-
-        # Show a plot of the generated distribution
-        mainPanel(
-           plotOutput("distPlot")
-        )
+ui = dashboardPage(
+  dashboardHeader(title = "ML Tools"),
+  dashboardSidebar(sidebarMenu(
+    menuItem(
+      "Landing Page",
+      tabName = "titlepage",
+      icon = icon("fas fa-file")
+    ),
+    menuItem(
+      "Data Tools",
+      tabName = "datatools",
+      icon = icon("fas fa-chart-bar"),
+      menuSubItem(tabName = "data_import", text = "Data Import"),
+      menuSubItem(tabName = "data_summary", text = "Data Summary"),
+      menuSubItem(tabName = "data_eda", text = "Exploratory Data Analysis")
     )
+  )),
+  
+  dashboardBody(tabItems(
+    tabItem(tabName = "titlepage", uiOutput("titleUI")),
+    tabItem(tabName = "data_import", uiOutput("dataimportUI")),
+    tabItem(tabName = "data_summmary", uiOutput("datasummaryUI")),
+    tabItem(tabName = "data_eda", uiOutput("dataedaUI"))
+  ))
 )
 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
 
-    output$distPlot <- renderPlot({
-        # generate bins based on input$bins from ui.R
-        x    <- faithful[, 2]
-        bins <- seq(min(x), max(x), length.out = input$bins + 1)
+#### Shiny Configuration ####
 
-        # draw the histogram with the specified number of bins
-        hist(x, breaks = bins, col = 'darkgray', border = 'white',
-             xlab = 'Waiting time to next eruption (in mins)',
-             main = 'Histogram of waiting times')
-    })
-}
+server = shinyServer(function(input, output, session) {
+  options(shiny.maxRequestSize = 1024 * 1024 ^ 2)
+  options(show.error.messages = TRUE)
+  options = list(lengthMenu = c(5, 10, 15, 20, 25, 50, 100),
+                 pageLength = 5)
+  
+  ## Render UI Code ##
+  
+  output$titleUI <- renderUI({
+    fluidPage(tags$head(tags$style(
+      HTML(
+        "
+        h1 {
+          font-family:  fantasy;
+          font-size: 120px;
+          color: #2C3E50;
+          text-align: center;
+        }
+      "
+      )
+    )),
+    h1("Welcome")
+    )
+  })
+  
+  
+})
 
-# Run the application 
+# Run the application
 shinyApp(ui = ui, server = server)
