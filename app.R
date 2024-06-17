@@ -9,6 +9,7 @@ library("shinyjs")
 library("dplyr")
 library("ggplot2")
 library("tidyr")
+library("checkmate")
 
 #### UI code ####
 
@@ -33,7 +34,7 @@ ui = dashboardPage(
   dashboardBody(tabItems(
     tabItem(tabName = "titlepage", uiOutput("titleUI")),
     tabItem(tabName = "data_import", uiOutput("dataimportUI")),
-    tabItem(tabName = "data_summmary", uiOutput("datasummaryUI")),
+    tabItem(tabName = "data_summary", uiOutput("datasummaryUI")),
     tabItem(tabName = "data_eda", uiOutput("dataedaUI"))
   ))
 )
@@ -47,7 +48,7 @@ server = shinyServer(function(input, output, session) {
   options = list(lengthMenu = c(5, 10, 15, 20, 25, 50, 100),
                  pageLength = 5)
   
-  ## Render UI Code ##
+ #### Render UI Code ####
   
   output$titleUI <- renderUI({
     fluidPage(tags$head(tags$style(
@@ -130,11 +131,62 @@ server = shinyServer(function(input, output, session) {
 
   })
   
+  output$datasummaryUI <- renderUI({
+    fluidPage(h2("Data Summary"),
+              fluidRow(dataTableOutput("datastructure")),
+              fluidRow(h3("Missing Values"),
+                       plotlyOutput("missing_value_plot")),
+              fluidRow(h2("Distribution Plots"),
+                       radioButtons(inputId = "plot_type",label = "Please select the type of plot",
+                                   choices = c("Bar","Pie"),selected = "Bar",inline = TRUE),
+                       h3("Plots"),
+                       selectInput(inputId = "selected_col_1",
+                                   label = "Please select a column",
+                                   choices = c(" ",req_cols()[[2]]),
+                                   selected = " ",
+                                   multiple = FALSE,
+                                   selectize = TRUE),
+                       plotlyOutput("dist_bar_plot") %>% withSpinner(type = 8))
+              
+              )
+  })
   
   
-  ##### server code #####
   
- # Data import code #
+ #### server code ####
+  
+ #### Welcome Image ####
+  output$image1 <- renderImage({
+    width <- "100%"
+    height <- "100%"
+    list(
+      src = "WWW/MLpic.jpg",
+      contentType = "image/jpg",
+      width = width,
+      height = "auto"
+    )
+  }, deleteFile = FALSE)
+  
+  
+  output$welcome_text <- renderText({
+    intro_message()
+  })
+  
+  intro_message <- reactive({
+    msg <-
+      c(
+        '<p 
+      style="font-size: x-large;
+      color: black;
+      font-family: serif;
+      align-content: center;
+      margin : 20px 0px 0px 90px;">
+      This tool is meant to illustrate few examples of machine learining process and methods <br></p>'
+      )
+    msg
+  })
+  
+ #### Data import code ####
   
   df_fileimport <- eventReactive(input$loadBtn_1,{
     show_modal_spinner(spin = "atom",
@@ -142,7 +194,7 @@ server = shinyServer(function(input, output, session) {
                        text = "Please wait uploading files...")
    
     tryCatch({
-      data1 <- read.csv(input$file1$datapath)
+      data1 <- read.csv(input$file1$datapath,na.strings = "")
       msg1  <- "File imported sucessfully"
       remove_modal_spinner()
       return(list(data1,msg1))
@@ -164,7 +216,7 @@ server = shinyServer(function(input, output, session) {
 
     tryCatch({
       dpath <- paste0("./data/",input$samplefile1)
-      data1 <- read.csv(dpath)
+      data1 <- read.csv(dpath,na.strings = "")
       msg1  <- "File imported sucessfully"
       remove_modal_spinner()
       return(list(data1,msg1))
@@ -178,7 +230,11 @@ server = shinyServer(function(input, output, session) {
 
   })
   
-  ##########
+  
+  output$import_text_fileimport <- renderText({df_fileimport()[[2]]})
+  output$import_text_sampledata <- renderText({df_sampledata()[[2]]})
+  
+ #### Data import View ####
   
   data_df1 <- reactive({
     if (input$datatype1 == "File import") {
@@ -195,40 +251,75 @@ server = shinyServer(function(input, output, session) {
       options = list(pageLength = 5, scrollX = TRUE)
     ))
   
-  output$image1 <- renderImage({
-    width <- "100%"
-    height <- "100%"
-    list(
-      src = "WWW/MLpic.jpg",
-      contentType = "image/jpg",
-      width = width,
-      height = "auto"
-    )
-  }, deleteFile = FALSE)
+####Data summary ####
   
+  df_str1 <- reactive({
+    df <- data_df1()
+    num_cols<-names(df[,!sapply(df, function(x){is.character(x)})])
+    # chr_cols<-names(df[,sapply(df, function(x){is.factor(x)})])
+    
+    new_df<-NULL 
+    for(i in num_cols){
+      summary_stats <- summary(df[[i]])
+      summary_df <- data.frame(
+        Statistic = names(summary_stats),
+        i = as.numeric(summary_stats)
+      )
+      reshaped_df <- data.frame(t(summary_df[-1]))
+      colnames(reshaped_df) <- summary_df$Statistic
+      rownames(reshaped_df) <- i
+      new_df <- rbind.fill(new_df,reshaped_df)
+      
+    }
+    num_df <- new_df
+    rownames(num_df) <- num_cols
+    return(num_df)
+  })
+  
+  output$datastructure = renderDataTable(datatable(df_str1()))
+  
+  #### Missing Values Plot ####
+  
+  missing_values_df <- reactive({
+  df <- data_df1()
+  missing_values = sapply(df, function(x){sum(is.na(x))})
+  missing_values = missing_values[missing_values > 0]
+  library(plotly)
+  plt <- plot_ly(x= names(missing_values),y = missing_values,type = "bar")
+  plt
+  })
+  output$missing_value_plot <- renderPlotly({missing_values_df()})
 
-output$welcome_text <- renderText({
-  intro_message()
+  
+####  dISTRIBUTION PLOTS ####
+
+req_cols <- reactive({
+  df <- data_df1()
+  num_cols<-names(df[,!sapply(df, function(x){is.character(x)})])
+  chr_cols<-names(df[,sapply(df, function(x){is.character(x)})])
+  
+  return(list(num_cols,chr_cols))
 })
 
-output$import_text_fileimport <- renderText({df_fileimport()[[2]]})
-output$import_text_sampledata <- renderText({df_sampledata()[[2]]})
-
-
-
-intro_message <- reactive({
-  msg <-
-    c(
-      '<p 
-      style="font-size: x-large;
-      color: black;
-      font-family: serif;
-      align-content: center;
-      margin : 20px 0px 0px 90px;">
-      This tool is meant to illustrate few examples of machine learining process and methods <br></p>'
-    )
-  msg
+dbar_plot <- reactive({
+  df <- data_df1()
+  val1 = df[[input$selected_col_1]]
+  x_val = names(table(val1))
+  y_val = table(val1)
+  
+  if (input$plot_type == "Bar"){
+  print("plotting")
+  plt1 <- plot_ly(x = x_val,y = y_val,type = "bar",color = x_val)
+  plt1
+  }else if(
+    input$plot_type == "Pie"){
+    
+  plt1 <- plot_ly(labels = x_val, values = y_val, type = 'pie')
+  plt1
+  }
+  
 })
+output$dist_bar_plot <- renderPlotly({dbar_plot()})
 
 })
 # Run the application
