@@ -10,6 +10,7 @@ library("dplyr")
 library("ggplot2")
 library("tidyr")
 library("checkmate")
+library("plyr")
 
 #### UI code ####
 
@@ -123,15 +124,64 @@ server = shinyServer(function(input, output, session) {
             ),
             actionButton("loadBtn_2", "Load data"),
             verbatimTextOutput("import_text_sampledata")
-            )))),
-      fluidRow(
-        h3("Data Summary"),
-        dataTableOutput("data_df"))
+            ))))
+      
       )
 
   })
-  
+
   output$datasummaryUI <- renderUI({
+    fluidPage(
+      fluidRow(
+        h3("Data Summary"),
+        dataTableOutput("data_df")),
+      fluidRow(
+        h3("Please verfiy the column types before proceeding"),
+        dataTableOutput("data_column_structure")
+        
+      ),
+      fluidRow(
+        radioButtons(
+          inputId = "type_change_1",
+          label = "Would to like to change the column type",
+          choices = c("Yes", "No"),
+          selected = "No",
+          inline = TRUE
+        )
+      ),
+      conditionalPanel(
+        condition = "input.type_change_1 == 'Yes'",
+        fluidRow(column(width = 4,
+          selectInput(
+            inputId = "selected_cols1",
+            label = "Please Select the columns",
+            choices = c(names(data_df1$data)),
+            selected = " ",
+            multiple = TRUE,
+            selectize = TRUE
+          )),
+          column(width = 4,
+          selectInput(
+            inputId = "selected_conversion",
+            label = "Please Select the conversion type",
+            choices = c("factor" = "as.factor","numeric" = "as.numeric","character" = "as.character"),
+            selected = " ",
+            multiple = TRUE,
+            selectize = TRUE
+          )),
+          column(style = 'padding-top:26px;',width = 4,
+                 actionButton("convert_button",label = "Convert")
+
+                 )
+          
+        ),
+        fluidRow(verbatimTextOutput("import_text_conversion"))
+        
+      )
+    )
+  })
+    
+  output$dataedaUI <- renderUI({
     fluidPage(h2("Data Summary"),
               fluidRow(dataTableOutput("datastructure")),
               fluidRow(h3("Missing Values"),
@@ -236,7 +286,21 @@ server = shinyServer(function(input, output, session) {
   
  #### Data import View ####
   
-  data_df1 <- reactive({
+  data_df1 <- reactiveValues(data = NULL)
+  
+  observeEvent(input$loadBtn_1, {
+    data_df1$data <- df_fileimport()[[1]]
+  })
+  
+  observeEvent(input$loadBtn_2, {
+    data_df1$data <- df_sampledata()[[1]]
+  })
+  
+  observeEvent(input$convert_button, {
+    data_df1$data <- column_converison()
+  })  
+  
+  data_df2 <- reactive({
     if (input$datatype1 == "File import") {
       df <- df_fileimport()[[1]]
     } else{
@@ -244,9 +308,28 @@ server = shinyServer(function(input, output, session) {
     }
   })
   
-  output$data_df <-
+  #### Data Column Correction ####
+  
+  column_converison <- eventReactive(input$convert_button,{
+    df <- data_df1$data
+    df1 <<- df
+    selected_columns <<- input$selected_cols1
+    conversion_type  <<- input$selected_conversion
+    
+    df[selected_columns] <- lapply(df[selected_columns], conversion_type)
+    df
+    # str(df)
+    # txt <- "Done"
+    # txt
+  })
+  
+  output$import_text_conversion <- renderText({column_converison()})
+  
+  #########
+  
+    output$data_df <-
     renderDataTable(datatable(
-      data_df1(),
+      data_df1$data,
       selection = "none",
       options = list(pageLength = 5, scrollX = TRUE)
     ))
@@ -254,8 +337,8 @@ server = shinyServer(function(input, output, session) {
 ####Data summary ####
   
   df_str1 <- reactive({
-    df <- data_df1()
-    num_cols<-names(df[,!sapply(df, function(x){is.character(x)})])
+    df <- data_df1$data
+    num_cols<-names(df[,!sapply(df, function(x){is.character(x) || is.factor(x)})])
     # chr_cols<-names(df[,sapply(df, function(x){is.factor(x)})])
     
     new_df<-NULL 
@@ -281,7 +364,7 @@ server = shinyServer(function(input, output, session) {
   #### Missing Values Plot ####
   
   missing_values_df <- reactive({
-  df <- data_df1()
+  df <- data_df1$data
   missing_values = sapply(df, function(x){sum(is.na(x))})
   missing_values = missing_values[missing_values > 0]
   library(plotly)
@@ -294,15 +377,15 @@ server = shinyServer(function(input, output, session) {
 ####  dISTRIBUTION PLOTS ####
 
 req_cols <- reactive({
-  df <- data_df1()
-  num_cols<-names(df[,!sapply(df, function(x){is.character(x)})])
-  chr_cols<-names(df[,sapply(df, function(x){is.character(x)})])
+  df <- data_df1$data
+  num_cols<-names(df[,!sapply(df, function(x){is.character(x)|| is.factor(x)})])
+  chr_cols<-names(df[,sapply(df, function(x){is.character(x) || is.factor(x)})])
   
   return(list(num_cols,chr_cols))
 })
 
 dbar_plot <- reactive({
-  df <- data_df1()
+  df <- data_df1$data
   val1 = df[[input$selected_col_1]]
   x_val = names(table(val1))
   y_val = table(val1)
@@ -320,6 +403,36 @@ dbar_plot <- reactive({
   
 })
 output$dist_bar_plot <- renderPlotly({dbar_plot()})
+
+####Data frame column validation ####
+
+data_structure1 <- reactive({
+df <- data_df1$data
+df_structure <- capture.output(str(df))
+new_df_1 <- NULL
+for (i in df_structure[2:length(df_structure)]) {
+  input_string = i
+  x  = as.data.frame(extract_variable_and_type(input_string))
+  new_df_1 = rbind(new_df_1, x)
+}
+new_df_1
+})
+
+output$data_column_structure <- renderDataTable({datatable(data_structure1())})
+
+#### static function move to other file after finish build ####
+
+
+extract_variable_and_type <- function(input_string) {
+  # Extract variable name and data type using regular expressions
+  variable_name <- stringr::str_extract(input_string, "(?<=\\$\\s)[^:]+")
+  variable_name <- trimws(variable_name)
+  data_type <- stringr::str_extract(input_string, "(:\\s+[[:alpha:]]+)")
+  data_type<- gsub(pattern = ":\\s+",replacement = "",x = data_type)
+  
+  return(list(variable_name = variable_name, data_type = data_type))
+}
+
 
 })
 # Run the application
