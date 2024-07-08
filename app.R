@@ -13,6 +13,10 @@ library("checkmate")
 library("plyr")
 library("mice")
 library("tidyverse")
+library("caret")
+library("ModelMetrics")
+library("shinyWidgets")
+library("shinyvalidate")
 
 #### UI code ####
 
@@ -48,7 +52,9 @@ ui = dashboardPage(
     tabItem(tabName = "data_import", uiOutput("dataimportUI")),
     tabItem(tabName = "data_summary", uiOutput("datasummaryUI")),
     tabItem(tabName = "data_eda", uiOutput("dataedaUI")),
-    tabItem(tabName = "data_sampling", uiOutput("datasampleUI"))
+    tabItem(tabName = "data_sampling", uiOutput("datasampleUI")),
+    tabItem(tabName = "base_models", uiOutput("basemodelUI")),
+    tabItem(tabName = "tree_models", uiOutput("treemodelUI"))
     
   ))
 )
@@ -62,7 +68,7 @@ server = shinyServer(function(input, output, session) {
   options = list(lengthMenu = c(5, 10, 15, 20, 25, 50, 100),
                  pageLength = 5)
   
-  #### Render UI Code ####
+    #### Render UI Code ####
   
   output$titleUI <- renderUI({
     fluidPage(
@@ -206,118 +212,185 @@ server = shinyServer(function(input, output, session) {
                            
                          )
                          
-                       )
-                       # fluidRow(verbatimTextOutput("import_text_conversion")))
-      ))
+                       ))
+    )
+  })
+  
+  output$dataedaUI <- renderUI({
+    fluidPage(
+      h2("Data Summary"),
+      fluidRow(dataTableOutput("datastructure")),
+      fluidRow(h3("Missing Values"),
+               plotlyOutput("missing_value_plot")),
+      fluidRow(
+        h2("Distribution Plots"),
+        radioButtons(
+          inputId = "plot_type",
+          label = "Please select the type of plot",
+          choices = c("Bar", "Pie"),
+          selected = "Bar",
+          inline = TRUE
+        ),
+        h3("Plots"),
+        selectInput(
+          inputId = "selected_col_1",
+          label = "Please select a column",
+          choices = c(" ", req_cols()[[2]]),
+          selected = " ",
+          multiple = FALSE,
+          selectize = TRUE
+        ),
+        plotlyOutput("dist_bar_plot") %>% withSpinner(type = 8)
+      ),
+      fluidRow(
+        h3("Histogram"),
+        selectInput(
+          inputId = "selected_col_2",
+          label = "Please select a column",
+          choices = c(" ", req_cols()[[1]]),
+          selected = " ",
+          multiple = FALSE,
+          selectize = TRUE
+        ),
+        plotlyOutput("histogram_plot") %>% withSpinner(type = 8)
+      ),
+      fluidRow(
+        h3("Box Plots"),
+        selectInput(
+          inputId = "selected_col_3",
+          label = "Please select a column",
+          choices = c(" ", req_cols()[[1]]),
+          selected = " ",
+          multiple = TRUE,
+          selectize = TRUE
+        ),
+        plotlyOutput("box_plots_1") %>% withSpinner(type = 8)
+      )
+    )
+    
+    
+    
   })
     
-    output$dataedaUI <- renderUI({
-      fluidPage(
-        h2("Data Summary"),
-        fluidRow(dataTableOutput("datastructure")),
-        fluidRow(h3("Missing Values"),
-                 plotlyOutput("missing_value_plot")),
-        fluidRow(
-          h2("Distribution Plots"),
-          radioButtons(
-            inputId = "plot_type",
-            label = "Please select the type of plot",
-            choices = c("Bar", "Pie"),
-            selected = "Bar",
-            inline = TRUE
-          ),
-          h3("Plots"),
-          selectInput(
-            inputId = "selected_col_1",
-            label = "Please select a column",
-            choices = c(" ", req_cols()[[2]]),
-            selected = " ",
-            multiple = FALSE,
-            selectize = TRUE
-          ),
-          plotlyOutput("dist_bar_plot") %>% withSpinner(type = 8)
+  output$datasampleUI <- renderUI({
+    fluidPage(
+      fluidRow(h3("Data Summary1"),
+               dataTableOutput("data_df_dup")),
+      fluidRow(
+        h4("Column Fitering"),
+        selectInput(
+          inputId = "filtered_cols",
+          label = "Select the columns to delete from data",
+          choices = names(data_df1$data),
+          selected = NULL,
+          multiple = T,
+          selectize = T
         ),
-        fluidRow(
-          h3("Histogram"),
-          selectInput(
-            inputId = "selected_col_2",
-            label = "Please select a column",
-            choices = c(" ", req_cols()[[1]]),
-            selected = " ",
-            multiple = FALSE,
-            selectize = TRUE
-          ),
-          plotlyOutput("histogram_plot") %>% withSpinner(type = 8)
+        actionButton(inputId = "filter_button", "Proceed")
+        
+      ),
+      fluidRow(
+        h4("Missing value imputations"),
+        selectInput(
+          inputId = "missing_imputate",
+          label = "Select columns you want to impute",
+          choices = names(data_df1$data),
+          selected = NULL,
+          multiple = T,
+          selectize = T
         ),
-        fluidRow(
-          h3("Box Plots"),
-          selectInput(
-            inputId = "selected_col_3",
-            label = "Please select a column",
-            choices = c(" ", req_cols()[[1]]),
-            selected = " ",
-            multiple = TRUE,
-            selectize = TRUE
-          ),
-          plotlyOutput("box_plots_1") %>% withSpinner(type = 8)
+        selectInput(
+          inputId = "impute_method",
+          label = "Select imputation method",
+          choices = c("delete", "Mean", "Median", "cart", "rf", "linearreg"),
+          selected = NULL,
+          multiple = F,
+          selectize = T
         )
-      )
-      
-      
-      
-    })
+      ),
+      fluidRow(actionButton(inputId = "imp_button", label = "Impute")),
+      fluidRow(verbatimTextOutput("imputation_message"))
+    )
     
-    output$datasampleUI <- renderUI({
-      fluidPage(
-        fluidRow(h3("Data Summary1"),
-                 dataTableOutput("data_df_dup")),
-        fluidRow(
-          h4("Column Fitering"),
-          selectInput(
-            inputId = "filtered_cols",
-            label = "Select the columns to delete from data",
-            choices = names(data_df1$data),
-            selected = NULL,
-            multiple = T,
-            selectize = T
-          ),
-          actionButton(inputId = "filter_button", "Proceed")
-          
-        ),
-        fluidRow(
-          h4("Missing value imputations"),
-          selectInput(
-            inputId = "missing_imputate",
-            label = "Select columns you want to impute",
-            choices = names(data_df1$data),
-            selected = NULL,
-            multiple = T,
-            selectize = T
-          ),
-          selectInput(
-            inputId = "impute_method",
-            label = "Select imputation method",
-            choices = c("delete", "Mean", "Median", "cart", "rf", "linearreg"),
-            selected = NULL,
-            multiple = F,
-            selectize = T
-          )
-        ),
-        fluidRow(actionButton(
-          inputId = "imp_button", label = "Impute"
-        )),
-        fluidRow(
-          verbatimTextOutput("imputation_message")
-        )
-      )
-      
-    })
+  })
+  
+  output$basemodelUI <- renderUI({
+    fluidPage(h2("Baseline models"),
+              fluidRow(
+                h3("baseline model"),
+                radioButtons(
+                  inputId = "model1",
+                  label = "Please select a model",
+                  choiceNames = c("Linear Regression", "Logistic regression"),
+                  choiceValues = c("linreg", "logreg"),
+                  selected = NULL,
+                  inline = TRUE
+                )
+              ),
+              fluidRow(
+                column(
+                  width = 3,
+                  selectInput(
+                    inputId = "target_var",
+                    label = "Select the target variable",
+                    choices = names(data_df1$data),
+                    multiple = F,
+                    selectize = F
+                  )
+                ),
+                column(
+                  width = 3,
+                  selectInput(
+                    inputId = "independent_var",
+                    label = "Select the independent variable",
+                    choices = c(),
+                    selected = NULL,
+                    multiple = T,selectize = T
+                    
+                    
+                  )
+                ),
+                column(
+                  width = 3,
+                  sliderInput(
+                    inputId = "tr_split_per",
+                    label = "Select the train split percentage",
+                    min = 0,
+                    max = 1,
+                    step = 0.1,
+                    value = 0.8,
+                    animate = T
+                  )
+                )), 
+              fluidRow(actionButton(inputId = "run_bmodel",label = "Run model")),
+              fluidRow(box(title = "Model Summary",width = "500px",collapsible = T,
+                           verbatimTextOutput("lin_reg_op"))),
+              fluidRow(checkboxInput(inputId = "run_pred", label = "Run Predictions", value = FALSE)),
+              conditionalPanel(condition = "input.run_pred == 1",
+                               fluidRow(
+                                 radioButtons(
+                                   inputId = "test_preds",
+                                   label = "Select an option",
+                                   choiceNames = c("Run on test data from original df",
+                                                   "upload manual test data"),
+                                   choiceValues = c("sp_test", "mn_test"),
+                                   selected = NULL,
+                                   inline = TRUE
+                                 )
+                               ),
+                               fluidRow(verbatimTextOutput("lin_reg_pr_op")))
+              
+              
+              )
+  })
     
     
     
     #### server code ####
     
     #### Welcome Image ####
+  
+    iv <- InputValidator$new()
     output$image1 <- renderImage({
       width <- "100%"
       height <- "100%"
@@ -405,7 +478,7 @@ server = shinyServer(function(input, output, session) {
     #### Data import View ####
     
     data_df1 <- reactiveValues(data = NULL)
-    
+
     observeEvent(input$loadBtn_1, {
       data_df1$data <- df_fileimport()[[1]]
     })
@@ -425,6 +498,18 @@ server = shinyServer(function(input, output, session) {
     observeEvent(input$imp_button, {
       data_df1$data <- missing_value_imputation()
     })
+    
+    observeEvent(input$target_var,{
+      otpt <-
+        names(data_df1$data[!names(data_df1$data) == input$target_var])
+      updateSelectInput(
+        session,
+        inputId = "independent_var",
+        label = "Select the independent variable",
+        choices = otpt,
+        selected = NULL)
+    })
+
     
     data_df2 <- reactive({
       if (input$datatype1 == "File import") {
@@ -447,6 +532,8 @@ server = shinyServer(function(input, output, session) {
         selection = "none",
         options = list(pageLength = 5, scrollX = TRUE)
       ))
+    
+    
     
     
     #### Data summary ####
@@ -626,6 +713,15 @@ server = shinyServer(function(input, output, session) {
     
     #### Missing Value imputation ####
     
+    iv$add_rule("missing_imputate", function(value) {
+      impute_method <- input$impute_method
+      print(impute_method)
+      if (length(value) < 2 && (impute_method != "delete" && impute_method != "Mean" && impute_method != "Median" )) {
+        "Make sure to select atleast 2 columns when using cart,rf or linearreg"
+      }
+    })
+    iv$enable()
+    
     missing_value_imputation <- eventReactive(input$imp_button,
                                               {
                                                 df <-  data_df1$data
@@ -638,7 +734,7 @@ server = shinyServer(function(input, output, session) {
                                                   m1 <- mice(df2, m = 1, method = "pmm")
                                                   df2 <- complete(m1)
                                                   df[c(selected_cols)] <- df2
-                                                }  else if (impute_method == "median") {
+                                                }  else if (impute_method == "Median") {
                                                   df2 <- df %>% select(selected_cols)
                                                   med_values <- sapply(df2, median, na.rm = TRUE)
                                                   for (i in names(med_values)) {
@@ -671,6 +767,85 @@ server = shinyServer(function(input, output, session) {
       txt
     })
     
+    #### Linear regression code ####
+    lin_reg <- eventReactive(input$run_bmodel,{
+      df <- data_df1$data
+      set.seed(19)
+      target_variable <- input$target_var
+      ind_var <- input$independent_var
+      tr_split_ratio <- as.numeric(input$tr_split_per)
+
+      trainIndex <- createDataPartition(df[[target_variable]],
+                                        p = tr_split_ratio,
+                                        list = FALSE,
+                                        times = 1)
+      head(trainIndex)
+      train <- df[trainIndex,]
+      test <- df[-trainIndex,]
+      
+      # train1<<-train
+      # test1<<-test
+      
+      cv_method = "repeatedcv"
+      cv_number = 10
+      cv_repeats = 10
+      
+      
+      fitControl <- trainControl(
+        method = cv_method,
+        number = cv_number,
+        repeats = cv_repeats)
+      
+      form1 <-
+        as.formula(as.formula(paste(
+          target_variable, "~", paste(ind_var, collapse = "+")
+        )))
+      if (input$model1 == "linreg"){
+      set.seed(825)
+      lmfit1 <- train(
+        form1,
+        data = train,
+        method = "lm",
+        trControl = fitControl,
+        verbose = FALSE,
+        metric = "Rsquared"
+      )
+      summary(lmfit1)
+      
+      return(list(lmfit1,test))
+      } else if(input$model1 == "logreg"){
+        set.seed(825)
+        logisticFit1 <- train(form1, data = train,
+                              method = "bayesglm", 
+                              trControl = fitControl)
+        
+        pr<- predict(logisticFit1,test)
+        print(pr)
+        print(test[[target_variable]])
+        CF1 <- caret::confusionMatrix(pr,test[[target_variable]])
+        print(CF1)
+      }
+       
+
+      
+    })
+    lin_reg_pred <- reactive({
+      lmfit1 <- lin_reg()[[1]]
+      test <- lin_reg()[[2]]
+      
+      pr <- predict(lmfit1, test)
+      # pr
+      rmse = rmse(test$mpg, pr)
+      r2 = R2(pr,test$mpg)
+      mape = 100 - MAPE(test$mpg, pr)
+      met_df = list2DF(list("rmse" = rmse, "rsquared" = r2,"Mape" = mape))
+      met_df
+
+    })
+    
+    output$lin_reg_op <- renderPrint(summary(lin_reg()[[1]]))
+    output$lin_reg_pr_op <- renderPrint(lin_reg_pred())
+    
     #### static function move to other file after finish build ####
     
     
@@ -687,6 +862,8 @@ server = shinyServer(function(input, output, session) {
       
       return(list(variable_name = variable_name, data_type = data_type))
     }
+    #### Mape function ####
+    MAPE<-function(actual,predicted){(mean(abs((actual-predicted)/actual)))*100}
     
     
 })
