@@ -16,6 +16,7 @@ library("tidyverse")
 library("caret")
 library("ModelMetrics")
 library("shinyWidgets")
+library("shinyvalidate")
 
 #### UI code ####
 
@@ -333,17 +334,16 @@ server = shinyServer(function(input, output, session) {
                     inputId = "target_var",
                     label = "Select the target variable",
                     choices = names(data_df1$data),
-                    selected = NULL,
                     multiple = F,
-                    selectize = T
+                    selectize = F
                   )
                 ),
                 column(
                   width = 3,
                   selectInput(
                     inputId = "independent_var",
-                    label = "Select the target variable",
-                    choices = c(indep_vars()),
+                    label = "Select the independent variable",
+                    choices = c(),
                     selected = NULL,
                     multiple = T,selectize = T
                     
@@ -365,7 +365,22 @@ server = shinyServer(function(input, output, session) {
               fluidRow(actionButton(inputId = "run_bmodel",label = "Run model")),
               fluidRow(box(title = "Model Summary",width = "500px",collapsible = T,
                            verbatimTextOutput("lin_reg_op"))),
-              fluidRow(checkboxInput(inputId = "run_pred", label = "Run Predictions", value = FALSE))
+              fluidRow(checkboxInput(inputId = "run_pred", label = "Run Predictions", value = FALSE)),
+              conditionalPanel(condition = "input.run_pred == 1",
+                               fluidRow(
+                                 radioButtons(
+                                   inputId = "test_preds",
+                                   label = "Select an option",
+                                   choiceNames = c("Run on test data from original df",
+                                                   "upload manual test data"),
+                                   choiceValues = c("sp_test", "mn_test"),
+                                   selected = NULL,
+                                   inline = TRUE
+                                 )
+                               ),
+                               fluidRow(verbatimTextOutput("lin_reg_pr_op")))
+              
+              
               )
   })
     
@@ -374,6 +389,8 @@ server = shinyServer(function(input, output, session) {
     #### server code ####
     
     #### Welcome Image ####
+  
+    iv <- InputValidator$new()
     output$image1 <- renderImage({
       width <- "100%"
       height <- "100%"
@@ -482,12 +499,17 @@ server = shinyServer(function(input, output, session) {
       data_df1$data <- missing_value_imputation()
     })
     
-
-    indep_vars <- reactive({
-      otpt <-names(data_df1$data[!names(data_df1$data) == input$target_var])
-      otpt
-      
+    observeEvent(input$target_var,{
+      otpt <-
+        names(data_df1$data[!names(data_df1$data) == input$target_var])
+      updateSelectInput(
+        session,
+        inputId = "independent_var",
+        label = "Select the independent variable",
+        choices = otpt,
+        selected = NULL)
     })
+
     
     data_df2 <- reactive({
       if (input$datatype1 == "File import") {
@@ -691,6 +713,15 @@ server = shinyServer(function(input, output, session) {
     
     #### Missing Value imputation ####
     
+    iv$add_rule("missing_imputate", function(value) {
+      impute_method <- input$impute_method
+      print(impute_method)
+      if (length(value) < 2 && (impute_method != "delete" && impute_method != "Mean" && impute_method != "Median" )) {
+        "Make sure to select atleast 2 columns when using cart,rf or linearreg"
+      }
+    })
+    iv$enable()
+    
     missing_value_imputation <- eventReactive(input$imp_button,
                                               {
                                                 df <-  data_df1$data
@@ -703,7 +734,7 @@ server = shinyServer(function(input, output, session) {
                                                   m1 <- mice(df2, m = 1, method = "pmm")
                                                   df2 <- complete(m1)
                                                   df[c(selected_cols)] <- df2
-                                                }  else if (impute_method == "median") {
+                                                }  else if (impute_method == "Median") {
                                                   df2 <- df %>% select(selected_cols)
                                                   med_values <- sapply(df2, median, na.rm = TRUE)
                                                   for (i in names(med_values)) {
@@ -752,6 +783,9 @@ server = shinyServer(function(input, output, session) {
       train <- df[trainIndex,]
       test <- df[-trainIndex,]
       
+      # train1<<-train
+      # test1<<-test
+      
       cv_method = "repeatedcv"
       cv_number = 10
       cv_repeats = 10
@@ -766,6 +800,7 @@ server = shinyServer(function(input, output, session) {
         as.formula(as.formula(paste(
           target_variable, "~", paste(ind_var, collapse = "+")
         )))
+      if (input$model1 == "linreg"){
       set.seed(825)
       lmfit1 <- train(
         form1,
@@ -777,13 +812,39 @@ server = shinyServer(function(input, output, session) {
       )
       summary(lmfit1)
       
-      # pr <- predict(lmfit1, test)
-      # rmse(test$mpg, pr)
-      # 100 - MAPE(test$mpg, pr)
+      return(list(lmfit1,test))
+      } else if(input$model1 == "logreg"){
+        set.seed(825)
+        logisticFit1 <- train(form1, data = train,
+                              method = "bayesglm", 
+                              trControl = fitControl)
+        
+        pr<- predict(logisticFit1,test)
+        print(pr)
+        print(test[[target_variable]])
+        CF1 <- caret::confusionMatrix(pr,test[[target_variable]])
+        print(CF1)
+      }
+       
+
       
     })
+    lin_reg_pred <- reactive({
+      lmfit1 <- lin_reg()[[1]]
+      test <- lin_reg()[[2]]
+      
+      pr <- predict(lmfit1, test)
+      # pr
+      rmse = rmse(test$mpg, pr)
+      r2 = R2(pr,test$mpg)
+      mape = 100 - MAPE(test$mpg, pr)
+      met_df = list2DF(list("rmse" = rmse, "rsquared" = r2,"Mape" = mape))
+      met_df
+
+    })
     
-    output$lin_reg_op <- renderPrint(lin_reg())
+    output$lin_reg_op <- renderPrint(summary(lin_reg()[[1]]))
+    output$lin_reg_pr_op <- renderPrint(lin_reg_pred())
     
     #### static function move to other file after finish build ####
     
@@ -801,7 +862,7 @@ server = shinyServer(function(input, output, session) {
       
       return(list(variable_name = variable_name, data_type = data_type))
     }
-  #### Mape function ####
+    #### Mape function ####
     MAPE<-function(actual,predicted){(mean(abs((actual-predicted)/actual)))*100}
     
     
