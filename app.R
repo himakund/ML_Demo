@@ -1,22 +1,26 @@
+# UI Libraries
 library("shinydashboard")
 library("shinybusy")
 library("DT")
 library("shinycssloaders")
-library("plotly")
-library("dplyr")
 library("shinytoastr")
 library("shinyjs")
-library("dplyr")
-library("ggplot2")
-library("tidyr")
-library("checkmate")
-library("plyr")
-library("mice")
-library("tidyverse")
-library("caret")
-library("ModelMetrics")
 library("shinyWidgets")
 library("shinyvalidate")
+library("readxl") # For Excel file support
+
+# Data Manipulation and Visualization
+library("tidyverse") # includes ggplot2, dplyr
+library("plotly")
+library("plyr")
+
+# Machine Learning and Statistics
+library("caret")
+library("ModelMetrics")
+library("mice")
+library("checkmate")
+library("rpart")
+library("rpart.plot")
 
 #### UI code ####
 
@@ -326,8 +330,7 @@ server = shinyServer(function(input, output, session) {
                   selected = NULL,
                   inline = TRUE
                 )
-              ),
-              fluidRow(
+              ), fluidRow(
                 column(
                   width = 3,
                   selectInput(
@@ -345,9 +348,8 @@ server = shinyServer(function(input, output, session) {
                     label = "Select the independent variable",
                     choices = c(),
                     selected = NULL,
-                    multiple = T,selectize = T
-                    
-                    
+                    multiple = T,
+                    selectize = T
                   )
                 ),
                 column(
@@ -361,27 +363,170 @@ server = shinyServer(function(input, output, session) {
                     value = 0.8,
                     animate = T
                   )
-                )), 
-              fluidRow(actionButton(inputId = "run_bmodel",label = "Run model")),
-              fluidRow(box(title = "Model Summary",width = "500px",collapsible = T,
-                           verbatimTextOutput("lin_reg_op"))),
-              fluidRow(checkboxInput(inputId = "run_pred", label = "Run Predictions", value = FALSE)),
-              conditionalPanel(condition = "input.run_pred == 1",
-                               fluidRow(
-                                 radioButtons(
-                                   inputId = "test_preds",
-                                   label = "Select an option",
-                                   choiceNames = c("Run on test data from original df",
-                                                   "upload manual test data"),
-                                   choiceValues = c("sp_test", "mn_test"),
-                                   selected = NULL,
-                                   inline = TRUE
-                                 )
-                               ),
-                               fluidRow(verbatimTextOutput("lin_reg_pr_op")))
-              
-              
+                )
+              ), fluidRow(actionButton(inputId = "run_bmodel", label = "Run model")), fluidRow(box(
+                title = "Model Summary",
+                width = "500px",
+                collapsible = T,
+                verbatimTextOutput("lin_reg_op")
+              )), fluidRow(checkboxInput(
+                inputId = "run_pred",
+                label = "Run Predictions",
+                value = FALSE
+              )), conditionalPanel(
+                condition = "input.run_pred == 1",
+                fluidRow(
+                  radioButtons(
+                    inputId = "test_preds",
+                    label = "Select an option",
+                    choiceNames = c("Run on test data from original df",
+                                    "upload manual test data"),
+                    choiceValues = c("sp_test", "mn_test"),
+                    selected = NULL,
+                    inline = TRUE
+                  )
+                ),
+                conditionalPanel(
+                  condition = "input.test_preds == 'mn_test'",
+                  fluidRow(
+                  fileInput(
+                    inputId = "test_file1",
+                    multiple = TRUE,
+                    label = strong('Please Select a data File'),
+                    accept = c(
+                      "text/csv",
+                      "text/comma-separated-values,text/plain",
+                      ".csv",
+                      ".xls",
+                      ".xlsx"
+                    )
+                  )
+                )
+              ),
+                fluidRow(verbatimTextOutput("lin_reg_pr_op"))
               )
+    )
+  })
+
+  output$treemodelUI <- renderUI({
+    fluidPage(
+      h2("Decision Tree Model"),
+      fluidRow(
+        column(
+          width = 3,
+          selectInput(
+            inputId = "tree_target",
+            label = "Select target variable",
+            choices = names(data_df1$data),
+            multiple = FALSE,
+            selectize = FALSE
+          )
+        ),
+        column(
+          width = 3,
+          selectInput(
+            inputId = "tree_features",
+            label = "Select features",
+            choices = c(),
+            selected = NULL,
+            multiple = TRUE,
+            selectize = TRUE
+          )
+        ),
+        column(
+          width = 3,
+          numericInput(
+            inputId = "tree_depth",
+            label = "Maximum tree depth",
+            value = 3,
+            min = 1,
+            max = 30
+          )
+        ),
+        column(
+          width = 3,
+          sliderInput(
+            inputId = "tree_split",
+            label = "Train/Test split ratio",
+            min = 0.5,
+            max = 0.9,
+            value = 0.7,
+            step = 0.1
+          )
+        )
+      ),
+      fluidRow(
+        column(
+          width = 12,
+          actionButton("train_tree", "Train Decision Tree")
+        )
+      ),
+      fluidRow(
+        box(
+          title = "Tree Visualization",
+          width = 12,
+          plotOutput("tree_plot")
+        )
+      ),
+      fluidRow(
+        box(
+          title = "Model Performance",
+          width = 12,
+          verbatimTextOutput("tree_metrics")
+        )
+      )
+    )
+  })
+
+  # Update feature choices when target is selected
+  observeEvent(input$tree_target, {
+    updateSelectInput(
+      session,
+      "tree_features",
+      choices = names(data_df1$data)[names(data_df1$data) != input$tree_target]
+    )
+  })
+
+  # Train decision tree model
+  tree_model <- eventReactive(input$train_tree, {
+    req(input$tree_target, input$tree_features, input$tree_depth)
+    
+    # Prepare data
+    data <- data_df1$data[c(input$tree_target, input$tree_features)]
+    set.seed(123)
+    train_idx <- createDataPartition(data[[input$tree_target]], p = input$tree_split, list = FALSE)
+    train_data <- data[train_idx,]
+    test_data <- data[-train_idx,]
+    
+    # Train model
+    formula <- as.formula(paste(input$tree_target, "~."))
+    tree <- rpart(formula, data = train_data, method = "class", maxdepth = input$tree_depth)
+    
+    # Make predictions
+    predictions <- predict(tree, test_data, type = "class")
+    
+    # Calculate metrics
+    metrics <- list(
+      accuracy = mean(predictions == test_data[[input$tree_target]]),
+      confusion_matrix = table(predictions, test_data[[input$tree_target]])
+    )
+    
+    list(model = tree, metrics = metrics)
+  })
+
+  # Render tree plot 
+  output$tree_plot <- renderPlot({
+    req(tree_model())
+    rpart.plot(tree_model()$model,nn = TRUE)
+  })
+
+  # Display model metrics
+  output$tree_metrics <- renderPrint({
+    req(tree_model())
+    cat("Model Performance Metrics:\n")
+    cat("\nAccuracy:", round(tree_model()$metrics$accuracy, 4))
+    cat("\n\nConfusion Matrix:\n")
+    print(tree_model()$metrics$confusion_matrix)
   })
     
     
@@ -421,48 +566,61 @@ server = shinyServer(function(input, output, session) {
       msg
     })
     
+    
     #### Data import code ####
     
     df_fileimport <- eventReactive(input$loadBtn_1, {
+      req(input$file1)
       show_modal_spinner(spin = "atom",
                          color = "firebrick",
                          text = "Please wait uploading files...")
       
       tryCatch({
-        data1 <- read.csv(input$file1$datapath, na.strings = "")
-        msg1  <- "File imported sucessfully"
+        validate(need(input$file1$datapath, "Please select a file"))
+        validate(need(tools::file_ext(input$file1$name) %in% c("csv", "xls", "xlsx"), "Invalid file format. Please upload CSV or Excel files."))
+        
+        data1 <- if(tools::file_ext(input$file1$name) == "csv") {
+          read.csv(input$file1$datapath, na.strings = c("", "NA", "N/A"), stringsAsFactors = TRUE)
+        } else {
+          readxl::read_excel(input$file1$datapath) %>% as.data.frame()
+        }
+        
+        validate(need(ncol(data1) > 0, "Empty file detected"))
+        validate(need(nrow(data1) > 0, "No data rows found in file"))
+        
+        msg1  <- "File imported successfully"
         remove_modal_spinner()
         return(list(data1, msg1))
       },
       error = function(e) {
-        data1 <- NULL
-        msg1 <- "File import Failed"
         remove_modal_spinner()
+        data1 <- NULL
+        msg1 <- paste("File import failed:", e$message)
         return(list(data1, msg1))
       })
-      
     })
     
     df_sampledata <- eventReactive(input$loadBtn_2, {
+      req(input$samplefile1)
       show_modal_spinner(spin = "atom",
                          color = "firebrick",
                          text = "Please wait uploading files...")
       
-      
       tryCatch({
-        dpath <- paste0("./data/", input$samplefile1)
-        data1 <- read.csv(dpath, na.strings = "")
-        msg1  <- "File imported sucessfully"
+        dpath <- file.path("data", input$samplefile1)
+        validate(need(file.exists(dpath), "Sample file not found"))
+        data1 <- read.csv(dpath, na.strings = "", stringsAsFactors = TRUE)
+        validate(need(ncol(data1) > 0, "Empty file detected"))
+        msg1  <- "File imported successfully"
         remove_modal_spinner()
         return(list(data1, msg1))
       },
       error = function(e) {
-        data1 <- NULL
-        msg1 <- "File import Failed"
         remove_modal_spinner()
+        data1 <- NULL
+        msg1 <- paste("File import failed:", e$message)
         return(list(data1, msg1))
       })
-      
     })
     
     
@@ -768,6 +926,7 @@ server = shinyServer(function(input, output, session) {
     })
     
     #### Linear regression code ####
+    
     lin_reg <- eventReactive(input$run_bmodel,{
       df <- data_df1$data
       set.seed(19)
@@ -782,9 +941,6 @@ server = shinyServer(function(input, output, session) {
       head(trainIndex)
       train <- df[trainIndex,]
       test <- df[-trainIndex,]
-      
-      # train1<<-train
-      # test1<<-test
       
       cv_method = "repeatedcv"
       cv_number = 10
@@ -813,6 +969,7 @@ server = shinyServer(function(input, output, session) {
       summary(lmfit1)
       
       return(list(lmfit1,test))
+      
       } else if(input$model1 == "logreg"){
         set.seed(825)
         logisticFit1 <- train(form1, data = train,
@@ -820,8 +977,8 @@ server = shinyServer(function(input, output, session) {
                               trControl = fitControl)
         
         pr<- predict(logisticFit1,test)
-        print(pr)
-        print(test[[target_variable]])
+        # print(pr)
+        # print(test[[target_variable]])
         CF1 <- caret::confusionMatrix(pr,test[[target_variable]])
         print(CF1)
       }
@@ -832,12 +989,11 @@ server = shinyServer(function(input, output, session) {
     lin_reg_pred <- reactive({
       lmfit1 <- lin_reg()[[1]]
       test <- lin_reg()[[2]]
-      
       pr <- predict(lmfit1, test)
       # pr
-      rmse = rmse(test$mpg, pr)
-      r2 = R2(pr,test$mpg)
-      mape = 100 - MAPE(test$mpg, pr)
+      rmse = rmse(test[[input$target_var]], pr)
+      r2 = R2(pr,test[[input$target_var]])
+      mape = 100 - MAPE(test[[input$target_var]], pr)
       met_df = list2DF(list("rmse" = rmse, "rsquared" = r2,"Mape" = mape))
       met_df
 
@@ -846,6 +1002,81 @@ server = shinyServer(function(input, output, session) {
     output$lin_reg_op <- renderPrint(summary(lin_reg()[[1]]))
     output$lin_reg_pr_op <- renderPrint(lin_reg_pred())
     
+#### Decision Tree code ####
+    
+dec_tree <- eventReactive(input$run_bmodel,{
+  df <- data_df1$data
+  set.seed(19)
+  target_variable <- input$target_var
+  ind_var <- input$independent_var
+  tr_split_ratio <- as.numeric(input$tr_split_per)
+  
+  trainIndex <- createDataPartition(df[[target_variable]], 
+                                  p = tr_split_ratio,
+                                  list = FALSE, 
+                                  times = 1)
+  
+  train <- df[trainIndex,]
+  test <- df[-trainIndex,]
+  
+  cv_method = "repeatedcv"
+  cv_number = 10
+  cv_repeats = 10
+  
+  fitControl <- trainControl(
+    method = cv_method,
+    number = cv_number,
+    repeats = cv_repeats)
+  
+  form1 <- as.formula(paste(target_variable, "~", paste(ind_var, collapse = "+")))
+  
+  if(input$model1 == "dectree"){
+    set.seed(825)
+    # Train decision tree model
+    dtree <- train(
+      form1,
+      data = train,
+      method = "rpart",
+      trControl = fitControl,
+      tuneLength = 10
+    )
+    
+    # If target is numeric, return regression metrics
+    if(is.numeric(train[[target_variable]])){
+      pred <- predict(dtree, test)
+      rmse <- rmse(test[[target_variable]], pred)
+      r2 <- R2(pred, test[[target_variable]])
+      mape <- 100 - MAPE(test[[target_variable]], pred)
+      metrics <- list("rmse" = rmse, "rsquared" = r2, "mape" = mape)
+      
+      return(list(dtree, test, metrics, "regression"))
+    }
+    # If target is categorical, return classification metrics  
+    else {
+      pred <- predict(dtree, test)
+      conf_matrix <- confusionMatrix(pred, test[[target_variable]])
+      return(list(dtree, test, conf_matrix, "classification"))
+    }
+  }
+})
+
+dec_tree_pred <- reactive({
+  model_output <- dec_tree()
+  dtree <- model_output[[1]]
+  test <- model_output[[2]]
+  metrics <- model_output[[3]]
+  model_type <- model_output[[4]]
+  
+  if(model_type == "regression"){
+    metrics_df <- list2DF(metrics)
+    metrics_df
+  } else {
+    metrics
+  }
+})
+
+output$dec_tree_op <- renderPrint(summary(dec_tree()[[1]]))
+output$dec_tree_pr_op <- renderPrint(dec_tree_pred())
     #### static function move to other file after finish build ####
     
     
@@ -866,7 +1097,94 @@ server = shinyServer(function(input, output, session) {
     MAPE<-function(actual,predicted){(mean(abs((actual-predicted)/actual)))*100}
     
     
+  # Random Forest code
+  rf_model <- eventReactive(input$run_bmodel, {
+    req(input$model1 == "rf")
+    
+    df <- data_df1$data
+    set.seed(19)
+    target_variable <- input$target_var
+    ind_var <- input$independent_var
+    tr_split_ratio <- as.numeric(input$tr_split_per)
+    
+    trainIndex <- createDataPartition(df[[target_variable]], 
+                                    p = tr_split_ratio,
+                                    list = FALSE, 
+                                    times = 1)
+    
+    train <- df[trainIndex,]
+    test <- df[-trainIndex,]
+    
+    cv_method = "repeatedcv"
+    cv_number = 5  # Reduced from 10 for faster processing
+    cv_repeats = 3 # Reduced from 10 for faster processing
+    
+    fitControl <- trainControl(
+      method = cv_method,
+      number = cv_number,
+      repeats = cv_repeats)
+    
+    form1 <- as.formula(paste(target_variable, "~", paste(ind_var, collapse = "+")))
+    
+    # Train random forest model
+    set.seed(825)
+    rf <- train(
+      form1,
+      data = train,
+      method = "rf",
+      trControl = fitControl,
+      importance = TRUE
+    )
+    
+    # Make predictions and calculate metrics based on target type
+    if(is.numeric(train[[target_variable]])) {
+      # Regression metrics
+      pred <- predict(rf, test)
+      rmse <- rmse(test[[target_variable]], pred)
+      r2 <- R2(pred, test[[target_variable]])
+      mape <- 100 - MAPE(test[[target_variable]], pred)
+      metrics <- list("rmse" = rmse, "rsquared" = r2, "mape" = mape)
+      
+      return(list(rf, test, metrics, "regression", varImp(rf)))
+    } else {
+      # Classification metrics
+      pred <- predict(rf, test)
+      conf_matrix <- confusionMatrix(pred, test[[target_variable]])
+      return(list(rf, test, conf_matrix, "classification", varImp(rf)))
+    }
+  })
+
+  rf_pred <- reactive({
+    req(rf_model())
+    model_output <- rf_model()
+    metrics <- model_output[[3]]
+    model_type <- model_output[[4]]
+    
+    if(model_type == "regression"){
+      metrics_df <- list2DF(metrics)
+      metrics_df
+    } else {
+      metrics
+    }
+  })
+
+  output$rf_model_op <- renderPrint({
+    req(rf_model())
+    summary(rf_model()[[1]])
+  })
+  
+  output$rf_importance <- renderPlot({
+    req(rf_model())
+    plot(rf_model()[[5]])
+  })
+  
+  output$rf_pred_op <- renderPrint({
+    req(rf_pred())
+    rf_pred()
+  })
 })
+
+
   # Run the application
   shinyApp(ui = ui, server = server)
   

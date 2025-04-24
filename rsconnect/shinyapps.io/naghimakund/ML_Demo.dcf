@@ -1,0 +1,12 @@
+name: ML_Demo
+title: ML_Demo
+username: naghimakund
+account: naghimakund
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12291259
+bundleId: 9439863
+url: https://naghimakund.shinyapps.io/ML_Demo/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
