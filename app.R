@@ -9,7 +9,7 @@ library("shinyWidgets")
 library("shinyvalidate")
 library("readxl") # For Excel file support
 
-# Data Manipulation and Visualization
+# Data Manipulation and Visualization packages
 library("tidyverse") # includes ggplot2, dplyr
 library("plotly")
 library("plyr")
