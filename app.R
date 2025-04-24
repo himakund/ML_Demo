@@ -18,7 +18,7 @@ library("ModelMetrics")
 library("shinyWidgets")
 library("shinyvalidate")
 
-#### UI code ####
+#### UI code #####
 
 ui = dashboardPage(
   dashboardHeader(title = "ML Tools"),
